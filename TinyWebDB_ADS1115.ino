@@ -28,12 +28,13 @@ Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 WiFiClient client;
 
 const char* resource = "http://test.tinywebdb.org/";           // http resource
-const unsigned long BAUD_RATE = 9600;      // serial connection speed
-const unsigned long HTTP_TIMEOUT = 10000;  // max respone time from server
+#define MAX_DATA 1000
+
 const size_t MAX_CONTENT_SIZE = 512;       // max size of the HTTP response
 const size_t MAX_POST_SIZE = 512 + MAX_DATA*5;  // max size of the HTTP POST
 char valuePost[MAX_POST_SIZE];
 
+const unsigned long BAUD_RATE = 9600;      // serial connection speed
 const unsigned long HTTP_TIMEOUT = 10000;  // max respone time from server
 
 #include "WiFiManager.h"          //https://github.com/tzapu/WiFiManager
@@ -408,16 +409,16 @@ bool TinyWebDBreadReponseContent(char* tag, char* value, const char* payload) {
 
 
 void loop() {
-    char  tag[32];
+  char  tag[32];
 
-    // Store 10,000 msec data and get led 
-    int time = millis(); 
+  // Store 10,000 msec data and get led 
+  int time = millis(); 
 
   float v0;
-  while (x < WIDTH)
+  while (x < WIDTH) {
     for (int j=0; j< 20; j++) {
       for (int i=0; i<10; i++) {
-        Signal = analogRead(A0);                // read from A0
+        int Signal = analogRead(A0);                // read from A0
         y[x] = map(Signal, 0, 1550, HEIGHT-14, 0);  
         delay(9);
     //    Signal = ads.readADC_SingleEnded(0);    // read from analog-to-digital converter ADS1115
@@ -427,25 +428,25 @@ void loop() {
       x++;
     } 
     drawY();
-    display.display();   
+    OLED.display();   
   }
   int endtime = millis()-starttime;
-  display.clearDisplay();
+  OLED.clearDisplay();
   drawAxis();
-  display.drawLine(0, 51, 127, 51, WHITE);
-  display.drawLine(0, 63, 127, 63, WHITE);
-  display.setTextSize(0);
-  display.setTextColor(WHITE);
-  display.setCursor(0,54);
-  display.print("Time=");
-  display.print(endtime);
-  display.print(" Count=");
-  display.print(x);
-  display.print("  ");
+  OLED.drawLine(0, 51, 127, 51, WHITE);
+  OLED.drawLine(0, 63, 127, 63, WHITE);
+  OLED.setTextSize(0);
+  OLED.setTextColor(WHITE);
+  OLED.setCursor(0,54);
+  OLED.print("Time=");
+  OLED.print(endtime);
+  OLED.print(" Count=");
+  OLED.print(x);
+  OLED.print("  ");
   x = 0;
   starttime = millis();
   clearY();
-  display.display();   
+  OLED.display();   
 
   USE_SERIAL.printf("ESP8266 Chip id = %08X\n", ESP.getChipId());
   sprintf(tag, "roomnoise-%06x", ESP.getChipId());
