@@ -13,6 +13,7 @@
 #include <Arduino.h>
 #include <time.h>            
 #define JST     3600*9
+#define VER    "1.0.0"
 
 Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 //Adafruit_ADS1015 ads;     /* Use thi for the 12-bit version */
@@ -22,17 +23,23 @@ Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 #include <ESP8266HTTPClient.h>
 
 #define USE_SERIAL Serial
-#define ledPin D6
-//#define ledPin BUILTIN_LED
+#define ledPin BUILTIN_LED
 
 WiFiClient client;
 
-const char* resource = "http://test.tinywebdb.org/";           // http resource
-#define MAX_DATA 1000
+// Set the Screen for the Pulse display
+const int WIDTH=120;
+const int HEIGHT=64;
+const int LENGTH=WIDTH;
 
+const char* resource = "http://test.tinywebdb.org/";           // http resource
+#define MAX_DATA WIDTH*10
+
+int data[MAX_DATA];
 const size_t MAX_CONTENT_SIZE = 512;       // max size of the HTTP response
-const size_t MAX_POST_SIZE = 512 + MAX_DATA*5;  // max size of the HTTP POST
+const size_t MAX_POST_SIZE = 512 + MAX_DATA*10;  // max size of the HTTP POST
 char valuePost[MAX_POST_SIZE];
+char params[MAX_POST_SIZE];
 
 const unsigned long BAUD_RATE = 9600;      // serial connection speed
 const unsigned long HTTP_TIMEOUT = 10000;  // max respone time from server
@@ -54,11 +61,6 @@ HTTPClient http;
 
 #define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306 OLED(OLED_RESET);
-
-// Set the Screen for the Pulse display
-const int WIDTH=120;
-const int HEIGHT=64;
-const int LENGTH=WIDTH;
 
 // For the display
 
@@ -192,11 +194,6 @@ void setup() {
     // ads.setGain(GAIN_SIXTEEN);    // 16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
 
     ads.begin();
-
-  // Clear the buffer.
-  OLED.clearDisplay();
-  drawAxis();
-  OLED.display();   
     
     while (0 == time(nullptr)) {
       delay(10);   // waiting time settle
@@ -207,16 +204,22 @@ void setup() {
 
 int TinyWebDBWebServiceError(const char* message)
 {
+    OLED.clearDisplay();
+    OLED.setCursor(0,0);
+    OLED.println("GetValue");
+    OLED.println("Error:" + String(message));
+    OLED.display(); //output 'display buffer' to screen  
 }
 
 void store_TinyWebDB(const char* tag) {    
     int httpCode;
     char buff[24];
 
-    const size_t bufferSize = JSON_ARRAY_SIZE(4) + JSON_OBJECT_SIZE(5);
+    const size_t bufferSize = JSON_ARRAY_SIZE(MAX_DATA) + JSON_OBJECT_SIZE(9);
     DynamicJsonBuffer jsonBuffer(bufferSize);
     
     JsonObject& root = jsonBuffer.createObject();
+    root["Ver"] = VER; 
     root["sensor"] = "ADS1115";
     root["localIP"] = WiFi.localIP().toString();
 
@@ -226,7 +229,7 @@ void store_TinyWebDB(const char* tag) {
     // we need store MAX_DATA on a array
     JsonArray& sersorData = root.createNestedArray("sersorData");
     for (int u = 0; u < MAX_DATA; u++) {
-        sersorData[u] = String(ads.readADC_SingleEnded(0) * 0.1875/1000);
+        sersorData.add(String(data[u]));
     }
     
     root.printTo(valuePost);
@@ -235,8 +238,8 @@ void store_TinyWebDB(const char* tag) {
     OLED.clearDisplay();
     OLED.setCursor(0,0);
     OLED.println("StoreValue");
-    OLED.println("T:" + String(tag));
-    OLED.println("S:" + String(strlen(valuePost)) + "/" + String(sizeof(valuePost)));
+    OLED.println("Tag :" + String(tag));
+    OLED.println("Save:" + String(strlen(valuePost)) + "/" + String(sizeof(valuePost)));
     OLED.display(); //output 'display buffer' to screen  
     
     httpCode = TinyWebDBStoreValue(tag, valuePost);
@@ -247,13 +250,9 @@ void store_TinyWebDB(const char* tag) {
         USE_SERIAL.printf("[HTTP] POST... code: %d\n", httpCode);
         OLED.println("POST:" + String(httpCode));
 
-        if(httpCode == HTTP_CODE_OK) {
-            TinyWebDBValueStored();
-        }
     } else {
         USE_SERIAL.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
         OLED.println(http.errorToString(httpCode).c_str());
-        TinyWebDBWebServiceError(http.errorToString(httpCode).c_str());
     }
 
     http.end();
@@ -281,6 +280,25 @@ int TinyWebDBGetValue(const char* tag)
     // start connection and send HTTP header
     int httpCode = http.GET();
 
+    // httpCode will be negative on error
+    if(httpCode > 0) {
+        // HTTP header has been send and Server response header has been handled
+        Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+
+    } else {
+        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+        TinyWebDBWebServiceError(http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+
+    if(httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
+        Serial.println(payload);
+        const char * value = payload.c_str();
+        TinyWebDBGotValue(tag, value);
+    }
+    
     return httpCode;
 }
 
@@ -297,8 +315,8 @@ int TinyWebDBGotValue(const char* tag, const char* value)
     OLED.clearDisplay();
     OLED.setCursor(0,0);
     OLED.println("GetValue");
-    OLED.println("T:" + String(tag));
-    OLED.println("V:" + String(value));
+    OLED.println("Tag :" + String(tag));
+    OLED.println("Valu:" + String(value));
     OLED.display(); //output 'display buffer' to screen  
     
     return 0;   
@@ -308,32 +326,9 @@ int TinyWebDBGotValue(const char* tag, const char* value)
 
 void get_TinyWebDB(const char* tag) {    
     int httpCode;
-    char  tag2[32];
-    char  value[128];
 
     httpCode = TinyWebDBGetValue(tag);
 
-    // httpCode will be negative on error
-    if(httpCode > 0) {
-        // HTTP header has been send and Server response header has been handled
-        USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
-
-        if(httpCode == HTTP_CODE_OK) {
-            String payload = http.getString();
-            USE_SERIAL.println(payload);
-            const char * msg = payload.c_str();
-            if (TinyWebDBreadReponseContent(tag2, value, msg)){
-                TinyWebDBGotValue(tag2, value);
-            }
-        }
-    } else {
-        USE_SERIAL.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-        TinyWebDBWebServiceError(http.errorToString(httpCode).c_str());
-    }
-
-    http.end();
-
-    delay(1000);
 }
 
 
@@ -350,9 +345,7 @@ int TinyWebDBStoreValue(const char* tag, const char* value)
     USE_SERIAL.printf("[HTTP] %s\n", url);
 
     // POST パラメータ作る
-    char params[256];
     sprintf(params, "tag=%s&value=%s", tag, value);
-    USE_SERIAL.printf("[HTTP] POST %s\n", params);
 
     // configure targed server and url
     http.begin(url);
@@ -360,8 +353,14 @@ int TinyWebDBStoreValue(const char* tag, const char* value)
     // start connection and send HTTP header
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int httpCode = http.POST(params);
-    String payload = http.getString();                  //Get the response payload
-    Serial.println(payload);    //Print request response payload
+    
+    if(httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();                  //Get the response payload
+        Serial.println(payload);    //Print request response payload
+        TinyWebDBValueStored();
+    } else {
+        TinyWebDBWebServiceError(http.errorToString(httpCode).c_str());
+    }
 
     http.end();
     return httpCode;
@@ -411,24 +410,33 @@ bool TinyWebDBreadReponseContent(char* tag, char* value, const char* payload) {
 void loop() {
   char  tag[32];
 
-  // Store 10,000 msec data and get led 
-  int time = millis(); 
+  // Clear the buffer.
+  OLED.clearDisplay();
+  drawAxis();
+  clearY();
+  OLED.display();   
 
   float v0;
-  while (x < WIDTH) {
-    for (int j=0; j< 20; j++) {
-      for (int i=0; i<10; i++) {
-        int Signal = analogRead(A0);                // read from A0
-        y[x] = map(Signal, 0, 1550, HEIGHT-14, 0);  
-        delay(9);
-    //    Signal = ads.readADC_SingleEnded(0);    // read from analog-to-digital converter ADS1115
-    //    y[x] = map(Signal, 0, 26666, HEIGHT-14, 0); // Leave some screen for the text.....
-        v0 = (Signal * 0.1875/1000); // A0 Read
-      }
-      x++;
-    } 
-    drawY();
-    OLED.display();   
+  int Signal;
+  starttime = millis();
+  for (x=0; x< WIDTH; x++) {
+    for (int i=0; i<10; i++) {
+//        Signal = analogRead(A0);                // Read from A0
+//        y[x] = map(Signal, 0, 1550, HEIGHT-14, 0);  
+//        delay(9);
+      Signal = ads.readADC_SingleEnded(0);    // read from analog-to-digital converter ADS1115
+      y[x] = map(Signal, 0, 26666, HEIGHT-14, 0); // Leave some screen for the text.....
+      v0 = (Signal * 0.1875/1000); // ADS A0 Read
+      data[x*10+i] = v0;
+    }
+    if(x%20 == 0) {
+      drawY();
+      OLED.setCursor(0,10);
+      OLED.print(String(v0));
+      OLED.print(" Signal=");
+      OLED.print(Signal);
+      OLED.display();   
+    }
   }
   int endtime = millis()-starttime;
   OLED.clearDisplay();
@@ -443,22 +451,21 @@ void loop() {
   OLED.print(" Count=");
   OLED.print(x);
   OLED.print("  ");
-  x = 0;
-  starttime = millis();
-  clearY();
   OLED.display();   
+  delay(5000);
 
   USE_SERIAL.printf("ESP8266 Chip id = %08X\n", ESP.getChipId());
   sprintf(tag, "roomnoise-%06x", ESP.getChipId());
   digitalWrite(ledPin, HIGH);
   store_TinyWebDB(tag);
   digitalWrite(ledPin, LOW);
+  delay(5000);
 
   sprintf(tag, "led-%06x", ESP.getChipId());
-  delay(5000);
   digitalWrite(ledPin, HIGH);
   get_TinyWebDB(tag);
   digitalWrite(ledPin, LOW);
+  delay(5000);
 
   OLED_update();
   delay(5000);
