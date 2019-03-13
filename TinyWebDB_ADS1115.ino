@@ -23,12 +23,12 @@ Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 #include <ESP8266HTTPClient.h>
 
 #define USE_SERIAL Serial
-#define ledPin BUILTIN_LED
+#define ledPin D4
 
 WiFiClient client;
 
 // Set the Screen for the Pulse display
-const int WIDTH=120;
+const int WIDTH=100;
 const int HEIGHT=64;
 const int LENGTH=WIDTH;
 
@@ -115,7 +115,7 @@ void OLED_init()
 
 }
 
-void OLED_update()
+void OLED_message(const char* message)
 {
   char buff[24];
 
@@ -134,6 +134,8 @@ void OLED_update()
         tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday,
         tm->tm_hour, tm->tm_min, tm->tm_sec); 
   OLED.println(buff);
+  OLED.println("message:");
+  OLED.println(message);
 
   OLED.display(); //output 'display buffer' to screen    
 }
@@ -204,16 +206,14 @@ void setup() {
 
 int TinyWebDBWebServiceError(const char* message)
 {
-    OLED.clearDisplay();
-    OLED.setCursor(0,0);
-    OLED.println("GetValue");
-    OLED.println("Error:" + String(message));
-    OLED.display(); //output 'display buffer' to screen  
+    OLED_message(message);
+    delay(5000);
+
+    return true;
 }
 
 void store_TinyWebDB(const char* tag) {    
     int httpCode;
-    char buff[24];
 
     const size_t bufferSize = JSON_ARRAY_SIZE(MAX_DATA) + JSON_OBJECT_SIZE(9);
     DynamicJsonBuffer jsonBuffer(bufferSize);
@@ -225,6 +225,7 @@ void store_TinyWebDB(const char* tag) {
 
     time_t now = time(nullptr);
     root["localTime"] = String(now);
+    root["Count"] = String(MAX_DATA);
 
     // we need store MAX_DATA on a array
     JsonArray& sersorData = root.createNestedArray("sersorData");
@@ -233,12 +234,11 @@ void store_TinyWebDB(const char* tag) {
     }
     
     root.printTo(valuePost);
-    USE_SERIAL.printf("[TinyWebDB] %s\n", valuePost);
 
     OLED.clearDisplay();
     OLED.setCursor(0,0);
     OLED.println("StoreValue");
-    OLED.println("Tag :" + String(tag));
+    OLED.println("buff:" + String(bufferSize));
     OLED.println("Save:" + String(strlen(valuePost)) + "/" + String(sizeof(valuePost)));
     OLED.display(); //output 'display buffer' to screen  
     
@@ -292,6 +292,10 @@ int TinyWebDBGetValue(const char* tag)
 
     http.end();
 
+    sprintf(url, "GET =%d", httpCode);
+    OLED_message(url);
+    delay(5000);
+
     if(httpCode == HTTP_CODE_OK) {
         String payload = http.getString();
         Serial.println(payload);
@@ -325,9 +329,8 @@ int TinyWebDBGotValue(const char* tag, const char* value)
 
 
 void get_TinyWebDB(const char* tag) {    
-    int httpCode;
 
-    httpCode = TinyWebDBGetValue(tag);
+    TinyWebDBGetValue(tag);
 
 }
 
@@ -425,9 +428,9 @@ void loop() {
 //        y[x] = map(Signal, 0, 1550, HEIGHT-14, 0);  
 //        delay(9);
       Signal = ads.readADC_SingleEnded(0);    // read from analog-to-digital converter ADS1115
+//      v0 = (Signal * 0.1875/1000); // ADS A0 Read
       y[x] = map(Signal, 0, 26666, HEIGHT-14, 0); // Leave some screen for the text.....
-      v0 = (Signal * 0.1875/1000); // ADS A0 Read
-      data[x*10+i] = v0;
+      data[x*10+i] = Signal;
     }
     if(x%20 == 0) {
       drawY();
@@ -467,6 +470,4 @@ void loop() {
   digitalWrite(ledPin, LOW);
   delay(5000);
 
-  OLED_update();
-  delay(5000);
 }
