@@ -28,7 +28,7 @@ Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 WiFiClient client;
 
 // Set the Screen for the Pulse display
-const int WIDTH=100;
+const int WIDTH=60;
 const int HEIGHT=64;
 const int LENGTH=WIDTH;
 
@@ -38,8 +38,8 @@ const char* resource = "http://noise.uc4.net/";           // http resource
 int data[MAX_DATA];
 const size_t MAX_CONTENT_SIZE = 512;       // max size of the HTTP response
 const size_t MAX_POST_SIZE = MAX_CONTENT_SIZE + MAX_DATA*7;  // max size of the HTTP POST
-//char valuePost[MAX_POST_SIZE];
-//char params[MAX_POST_SIZE+48];
+char valuePost[MAX_POST_SIZE];
+char params[MAX_POST_SIZE+48];
 
 const unsigned long BAUD_RATE = 9600;      // serial connection speed
 const unsigned long HTTP_TIMEOUT = 10000;  // max respone time from server
@@ -209,7 +209,6 @@ int TinyWebDBWebServiceError(const char* message)
 
 void store_TinyWebDB(const char* tag) {    
     int httpCode;
-    char params[64];
 
     const size_t bufferSize = JSON_ARRAY_SIZE(MAX_DATA) + JSON_OBJECT_SIZE(9);
     DynamicJsonBuffer jsonBuffer(bufferSize);
@@ -228,10 +227,6 @@ void store_TinyWebDB(const char* tag) {
         sersorData.add(String(data[u]));
     }
 
-
-    // POST パラメータ作る
-    sprintf(params, "tag=%s&value=", tag);
-    String valuePost=params;
     root.printTo(valuePost);
 
     OLED.clearDisplay();
@@ -239,8 +234,7 @@ void store_TinyWebDB(const char* tag) {
     OLED.println("StoreValue");
     OLED.println("Cunt:" + String(MAX_DATA));
     OLED.println("Size:" + String(bufferSize));
-//OLED.println(strJSON.length);
-//    OLED.println("Save:" + String(strlen(valuePost)) + "/" + String(sizeof(valuePost)));
+    OLED.println("Save:" + String(strlen(valuePost)) + "/" + String(sizeof(valuePost)));
     OLED.display(); //output 'display buffer' to screen  
     
     httpCode = TinyWebDBStoreValue(tag, valuePost);
@@ -338,14 +332,14 @@ int TinyWebDBStoreValue(const char* tag, const char* value)
     sprintf(url, "%s%s", resource, "storeavalue");
 
     // POST パラメータ作る
-//    sprintf(params, "tag=%s&value=%s", tag, value);
+    sprintf(params, "tag=%s&value=%s", tag, value);
 
     // configure targed server and url
     http.begin(url);
 
     // start connection and send HTTP header
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    int httpCode = http.POST(value);
+    int httpCode = http.POST(params);
     
     if(httpCode == HTTP_CODE_OK) {
         http.getString();
