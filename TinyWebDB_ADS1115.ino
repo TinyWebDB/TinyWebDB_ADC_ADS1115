@@ -17,7 +17,7 @@
 
 Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 //Adafruit_ADS1015 ads;     /* Use thi for the 12-bit version */
-
+int gain=0;
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
@@ -219,6 +219,7 @@ void store_TinyWebDB(const char* tag) {
 
     time_t now = time(nullptr);
     root["localTime"] = String(now);
+    root["Gain"] = String(gain);
     root["Count"] = String(MAX_DATA);
 
     // we need store MAX_DATA on a array
@@ -259,11 +260,13 @@ void store_TinyWebDB(const char* tag) {
 // Action        URL                      Post Parameters  Response
 // Get Value     {ServiceURL}/getvalue    tag              JSON: ["VALUE","{tag}", {value}]
 // ----------------------------------------------------------------------------------------
-int TinyWebDBGetValue(const char* tag)
+int TinyWebDBGetValue(const char* c_tag)
 {
     char url[64];
-
-    sprintf(url, "%s%s?tag=%s", resource, "getvalue/", tag);
+    char  tag[32];
+    char  value[128];
+    
+    sprintf(url, "%s%s?tag=%s", resource, "getvalue", c_tag);
 
     // configure targed server and url
     http.begin(url);
@@ -278,29 +281,44 @@ int TinyWebDBGetValue(const char* tag)
         TinyWebDBWebServiceError(http.errorToString(httpCode).c_str());
     }
 
-    http.end();
-
-    sprintf(url, "GET =%d", httpCode);
-    OLED_message(url);
-    delay(5000);
-
     if(httpCode == HTTP_CODE_OK) {
         String payload = http.getString();
-        Serial.println(payload);
-        const char * value = payload.c_str();
-        TinyWebDBGotValue(tag, value);
+//        Serial.println(payload);
+        const char * msg = payload.c_str();
+        OLED_message(msg);
+        if (TinyWebDBreadReponseContent(tag, value, msg)){
+            TinyWebDBGotValue(tag, value);
+        }
     }
     
+    http.end();
     return httpCode;
 }
 
 int TinyWebDBGotValue(const char* tag, const char* value)
 {
+    gain = atoi(value);
+    switch(gain) {
+      case 1:
+        ads.setGain(GAIN_ONE);        // 1x gain   +/- 4.096V  1 bit = 2mV      0.125mV
+        break;
+      case 2:
+        ads.setGain(GAIN_TWO);        // 2x gain   +/- 2.048V  1 bit = 1mV      0.0625mV
+        break;
+      case 4:
+        ads.setGain(GAIN_FOUR);       // 4x gain   +/- 1.024V  1 bit = 0.5mV    0.03125mV
+        break;
+      case 8:
+        ads.setGain(GAIN_EIGHT);      // 8x gain   +/- 0.512V  1 bit = 0.25mV   0.015625mV
+        break;
+      case 16:
+        ads.setGain(GAIN_SIXTEEN);    // 16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
+        break;
+      default:
+        ads.setGain(GAIN_TWOTHIRDS);  // 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default)
+        break;      
+    }
 
-    String s = value;
-    if(s.compareTo("on")) digitalWrite(ledPin, HIGH);
-    else  digitalWrite(ledPin, LOW);
-    
     OLED.clearDisplay();
     OLED.setCursor(0,0);
     OLED.println("GetValue");
@@ -416,7 +434,7 @@ void loop() {
       y[x] = map(Signal, 0, 26666, HEIGHT-14, 0); // Leave some screen for the text.....
       data[x*10+i] = Signal;
     }
-    if(x%20 == 0) {
+    if(x%10 == 9) {
       drawY();
       OLED.setCursor(0,10);
       OLED.print(String(v0));
@@ -426,8 +444,7 @@ void loop() {
     }
   }
   int endtime = millis()-starttime;
-  OLED.clearDisplay();
-  drawAxis();
+//  OLED.clearDisplay();
   OLED.drawLine(0, 51, 127, 51, WHITE);
   OLED.drawLine(0, 63, 127, 63, WHITE);
   OLED.setTextSize(0);
@@ -439,18 +456,18 @@ void loop() {
   OLED.print(x);
   OLED.print("  ");
   OLED.display();   
-  delay(5000);
+  delay(2000);
 
   sprintf(tag, "roomnoise-%06x", ESP.getChipId());
   digitalWrite(ledPin, HIGH);
   store_TinyWebDB(tag);
   digitalWrite(ledPin, LOW);
-  delay(5000);
+  delay(2000);
 
-  sprintf(tag, "led-%06x", ESP.getChipId());
+  sprintf(tag, "gain-%06x", ESP.getChipId());
   digitalWrite(ledPin, HIGH);
   get_TinyWebDB(tag);
   digitalWrite(ledPin, LOW);
-  delay(5000);
+  delay(2000);
 
 }
